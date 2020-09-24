@@ -15,6 +15,103 @@ The contract is designed to be universal and flexible:
 
 Check out the wiki to get more details.
 
+# Deployment
+
+###### 1. Deploy ProposalTemplates contract
+```javascript
+proposalTemplatesAbi = JSON.parse('ABI_HERE');
+proposalTemplatesBin = '0xBYTECODE_HERE';
+
+// create new contract
+proposalTemplates = web3.ftm.contract(proposalTemplatesAbi).new({ from: account, data: proposalTemplatesBin });
+// wait until transaction has confirmed and contract has received its address
+proposalTemplates.address;
+// initialize the conctract
+proposalTemplates.initialize({ from: account })
+// account is an owner of the proposalTemplates.
+// Transfer ownership to the governance conctract later!
+```
+###### 2. Fill ProposalTemplates with proposal templates
+
+```javascript
+proposalTemplates.addTemplate(proposalType, "template name", additionalVerifierAddress, executable, minVotes, minAgreement, [0,2,3,4,5], minVotingDuration, maxVotingDuration, minStartDelay, maxStartDelay, {from: account})
+```
+Check out `Proposal parameters` in the wiki to get more details.
+
+Only proposalTemplates owner is allowed to add templates.
+
+###### 3. Deploy governable contract
+The governance contract will work with any governable contract which implements the Governable interface.
+In a case you're using governance with the Fantom SFC 2.0.2 contract, then deploy this adapter from SFC to Governable interface:
+```javascript
+sfc2govAdapterAbi = JSON.parse('ABI_HERE');
+sfc2govAdapterBin = '0xBYTECODE_HERE';
+// create new contract
+governable = web3.ftm.contract(sfc2govAdapterAbi).new({ from: account, data: sfc2govAdapterBin });
+// wait until transaction has confirmed and contract has received its address
+governable.address;
+// sanity check, should return non-zero value
+governable.getTotalWeight()
+```
+
+###### 4. Deploy Governance contract
+```javascript
+govAbi = JSON.parse('ABI_HERE');
+govBin = '0xBYTECODE_HERE';
+// Create new contract
+gov = web3.ftm.contract(govAbi).new({ from: account, data: govBin });
+// wait until transaction has confirmed and contract has received its address
+gov.address;
+// Initialize the contract
+gov.initialize(governable.address, proposalTemplates.address, {from: account})
+```
+
+###### 5. Create a first proposal
+
+Here's an example of creation of a SoftwareUpgradeProposal. The proposalTemplates should have a template for porposal type `11`:
+
+```javascript
+// Sanity check. Should return non-zero values.
+proposalTemplates.get(3);
+// Artifacts of SoftwareUpgradeProposal
+upgProposalAbi = JSON.parse('ABI_HERE');
+upgProposalBin = '0xBYTECODE_HERE';
+// Create new contract
+// proposalTemplates.address is optional, replace with a zero address if proposal verification during deployment isn't needed.
+// If proposalTemplates is specified, yhe deployment will revert if verification in proposalTemplates fails.
+// proposalTemplates will not verify conctract bytecode in this call to reduce gas usage.
+// Note that governance contract must be a proxy admin of the upgradable contract.
+upgProposal = web3.ftm.contract(upgProposalAbi).new("proposal name", "proposal description", minVotes, minAgreement, startDelay, minVotingDuration, maxVotingDuration, upgradableContractAddress, newImplementation, proposalTemplates.address, { from: account, data: upgProposalBin });
+// wait until transaction has confirmed and contract has received its address
+upgProposal.address;
+// Create proposal, burning 100 FTM during this operation
+// The call will revert if proposal verification fails
+gov.createProposal(upgProposal.address, {from: account, value: web3.toWei("100", "ftm")});
+// Find your proposal ID
+id = gov.lastProposalID();
+// Ensure that id points to your proposal
+gov.proposalParams(id);
+```
+
+If you have to use 2 different addresses for calling UpgradeabilityProxy methods and underlying contract methods,
+then you can archive it by wrapping the governance contract with a relay proxy:
+
+```javascript
+// Artifacts of RelayProxy
+relayAbi = JSON.parse('ABI_HERE');
+relayBin = '0xBYTECODE_HERE';
+// Create new contract
+relay = web3.ftm.contract(relayAbi).new(gov.address, upgradableContractAddress, { from: account, data: relayBin });
+// wait until transaction has confirmed and contract has received its address
+relay.address;
+// transfer ownership to the relay address
+upgradable.changeAdmin(relay.address, {from: admin})
+// use relay.address as upgradableContractAddress during SoftwareUpgradeProposal deployment
+````
+
+In the example above, only governance contract will be able to make calls to upgradable though the relay contract.
+Relay contract and governance contract will have different addresses, which will prevent an overlapping.
+
 # Test
 
 1. Install nodejs 10.5.0
